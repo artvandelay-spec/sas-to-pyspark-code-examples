@@ -38,17 +38,21 @@ display(df_dedup)
 # MAGIC %md
 # MAGIC ## Recovering the `dupout` dataset
 # MAGIC
-# MAGIC SAS's `dupout =` writes every row that was considered a duplicate. We can
-# MAGIC reproduce that by counting rows per key and keeping groups with `count > 1`.
+# MAGIC SAS's `dupout =` writes only the rows that were *removed* by NODUPKEY —
+# MAGIC that is, every row except the first one within each BY-group. We
+# MAGIC reproduce that with `row_number()` over a window partitioned by the
+# MAGIC NODUPKEY columns and keep rows with `rn > 1`.
 
 # COMMAND ----------
 
-window_cols = ["make", "origin"]
+from pyspark.sql.window import Window
 
-df_with_counts = base.groupBy(*window_cols).count()
+window_cols = ["origin", "make"]
+dupout_window = Window.partitionBy(*window_cols).orderBy(F.lit(1))
+
 df_duplicates_rep = (
-    base.join(df_with_counts, on=window_cols, how="inner")
-        .filter(F.col("count") > 1)
-        .drop("count")
+    base.withColumn("rn", F.row_number().over(dupout_window))
+        .filter(F.col("rn") > 1)
+        .drop("rn")
 )
 display(df_duplicates_rep)
